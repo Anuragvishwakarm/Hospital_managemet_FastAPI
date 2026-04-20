@@ -19,5 +19,6 @@ class DoctorProfile(Base):
     is_available     = Column(Boolean, default=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
     updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    photo_url        = Column(String, nullable=True)
 
     user = relationship("User", back_populates="doctor_profile")

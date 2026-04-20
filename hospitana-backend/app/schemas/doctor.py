@@ -32,6 +32,7 @@ class DoctorProfileResponse(BaseModel):
     bio:              Optional[str]
     consultation_fee: int
     is_available:     bool
+    photo_url: Optional[str] = None    
     created_at:       datetime
 
     model_config = {"from_attributes": True}

@@ -1,5 +1,8 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import engine, Base
@@ -15,8 +18,10 @@ from app.models import (  # noqa: F401
 )
 
 # Routers
-from app.routers import auth, admin, doctor, patient, receptionist, account, public
-from app.routers import appointment, billing, pharmacy, laboratory, bed
+from app.routers import (
+    auth, admin, doctor, patient, receptionist, account, public,
+    appointment, billing, pharmacy, laboratory, bed, uploads,
+)
 
 # ── create_all DISABLED — Alembic handles all migrations ─────────────────────
 # Base.metadata.create_all(bind=engine)
@@ -39,6 +44,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Static uploads (doctor photos) ────────────────────────────────────────────
+# Files land on disk under app/uploads/doctors/{doctor_id}.{ext}
+# and are served publicly at http://<host>/uploads/doctors/{doctor_id}.{ext}
+UPLOAD_ROOT = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_ROOT, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 API_PREFIX = "/api/v1"
 
@@ -54,6 +66,7 @@ app.include_router(pharmacy.router,     prefix=API_PREFIX)
 app.include_router(laboratory.router,   prefix=API_PREFIX)
 app.include_router(bed.router,          prefix=API_PREFIX)
 app.include_router(public.router,       prefix=API_PREFIX)
+app.include_router(uploads.router,      prefix=API_PREFIX)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

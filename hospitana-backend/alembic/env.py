@@ -3,10 +3,13 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 import os, sys
 
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import Base
-from app.models import User, DoctorProfile, PatientProfile  # noqa — register models
+# Wildcard import so every model registers with Base.metadata
+# (app/models/__init__.py exports all of them)
+from app.models import *  # noqa: F401, F403
 
 config = context.config
 

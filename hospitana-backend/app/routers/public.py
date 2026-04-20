@@ -1,33 +1,4 @@
-"""
-app/routers/public.py
-=====================
-Public endpoints for hospitana-website (port 3000):
-
-  GET   /public/doctors               — list (no auth)
-  GET   /public/doctors/{id}          — one doctor (no auth)
-  GET   /public/wards                 — live bed availability (no auth)
-  GET   /public/stats                 — hospital stats (no auth)
-
-  POST  /public/auth/register         — PATIENT self-signup (no auth, returns JWT)
-                                        Mirrors staff POST /patients internally:
-                                        creates User + PatientProfile + UHID.
-  POST  /public/auth/login            — patient login (returns JWT)
-
-Everything else — profile, appointments, reports — is served by your
-EXISTING authenticated routers. The website just attaches the JWT:
-
-  GET  /api/v1/patients/me
-  PUT  /api/v1/patients/{id}/profile
-  PUT  /api/v1/patients/{id}
-  GET  /api/v1/appointments               (auto-scoped to patient)
-  GET  /api/v1/appointments/available-slots
-  POST /api/v1/appointments
-  PUT  /api/v1/appointments/{id}/cancel
-
-Register in app/main.py:
-    from app.routers import public
-    app.include_router(public.router, prefix="/api/v1")
-"""
+""
 
 import random
 import string
@@ -39,7 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
-
+from app.models.media import WardPhoto, HospitalPhoto
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.patient import PatientProfile
@@ -107,6 +78,7 @@ class PublicWard(BaseModel):
     total_beds: int
     available_beds: int
     beds: list[PublicBed]
+    photos: list[str] = []
 
 
 class PatientRegisterRequest(BaseModel):
@@ -150,9 +122,9 @@ def _serialise_doctor(user: User, profile: DoctorProfile) -> PublicDoctor:
         languages=["Hindi", "English"],
         available_days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
         photo_url=(
-            f"https://ui-avatars.com/api/"
-            f"?name={full_name.replace(' ', '+')}"
-            f"&background=0F4C4A&color=FAF6EF&size=512&bold=true&format=png"
+            profile.photo_url
+            or f"https://ui-avatars.com/api/?name={full_name.replace(' ', '+')}"
+                f"&background=0F4C4A&color=FAF6EF&size=512&bold=true&format=png"
         ),
         rating=4.8, consultations=0,
     )
@@ -195,23 +167,39 @@ def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
 # ─── WARDS / STATS ──────────────────────────────────────────────────────────
 @router.get("/wards", response_model=list[PublicWard])
 def list_wards(db: Session = Depends(get_db)):
-    wards = db.query(Ward).all()
-    result = []
-    for w in wards:
-        beds = db.query(Bed).filter(Bed.ward_id == w.id).all()
-        result.append(PublicWard(
-            id=w.id,
-            name=getattr(w, "name", f"Ward {w.id}"),
-            type=str(getattr(w, "ward_type", None) or getattr(w, "type", None) or "general"),
-            description=getattr(w, "description", None),
-            daily_charge=float(getattr(w, "daily_charge", 0) or 0),
-            amenities=(getattr(w, "amenities", None) or []),
-            total_beds=len(beds),
-            available_beds=sum(1 for b in beds if not bool(getattr(b, "is_occupied", False))),
-            beds=[PublicBed(id=b.id, bed_number=getattr(b, "bed_number", f"B-{b.id:02d}"),
-                            is_occupied=bool(getattr(b, "is_occupied", False))) for b in beds],
-        ))
-    return result
+        wards = db.query(Ward).all()
+        result = []
+        for w in wards:
+            beds = db.query(Bed).filter(Bed.ward_id == w.id).all()
+ 
+            # NEW — fetch ward photos, sorted
+            photos = (
+                db.query(WardPhoto)
+                .filter(WardPhoto.ward_id == w.id)
+                .order_by(WardPhoto.sort_order, WardPhoto.id)
+                .all()
+            )
+ 
+            result.append(PublicWard(
+                id=w.id,
+                name=getattr(w, "name", f"Ward {w.id}"),
+                type=str(getattr(w, "ward_type", None) or getattr(w, "type", None) or "general"),
+                description=getattr(w, "description", None),
+                daily_charge=float(getattr(w, "daily_charge", 0) or 0),
+                amenities=(getattr(w, "amenities", None) or []),
+                total_beds=len(beds),
+                available_beds=sum(1 for b in beds if not bool(getattr(b, "is_occupied", False))),
+                beds=[PublicBed(
+                    id=b.id,
+                    bed_number=getattr(b, "bed_number", f"B-{b.id:02d}"),
+                    is_occupied=bool(getattr(b, "is_occupied", False)),
+                ) for b in beds],
+                photos=[p.photo_url for p in photos],     # ← ADD THIS LINE
+            ))
+        return result
+
+
+
 
 
 @router.get("/stats")
@@ -368,3 +356,25 @@ def who_am_i(me: User = Depends(_get_current_patient)):
         "phone": me.phone,
         "uhid": uhid,
     }
+
+
+@router.get("/hospital-photos")
+def list_public_hospital_photos(
+        category: Optional[str] = None,
+        db: Session = Depends(get_db),
+    ):
+        q = db.query(HospitalPhoto)
+        if category:
+            q = q.filter(HospitalPhoto.category == category)
+        rows = q.order_by(HospitalPhoto.sort_order, HospitalPhoto.id).all()
+        return [
+            {
+                "id": r.id,
+                "photo_url": r.photo_url,
+                "caption": r.caption,
+                "category": r.category,
+            }
+            for r in rows
+        ]
+ 
+ 
